@@ -5,7 +5,7 @@ The ping command in c
 
 - getpid : returns the process ID of the calling process.
 - getuid : returns the real user ID of the calling process.
-- getaddrinfo : convert domain names, hostnames, and IP addresses between human-readable text representations and structured binary formats for the operating system's networking API.
+- [getaddrinfo](http://linux.die.net/man/3/getaddrinfo) : convert domain names, hostnames, and IP addresses between human-readable text representations and structured binary formats for the operating system's networking API.
 - gettimeofday : can get and set the time as well as a timezone.
 - inet_ntop : convert IPv4 and IPv6 addresses from binary to text form.
 - [inet_pton](http://linux.die.net/man/3/inet_pton) : convert IPv4 and IPv6 addresses from text to binary form
