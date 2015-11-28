@@ -54,7 +54,7 @@ void ping(s_sockaddr_in *addr)
 {
 	const int val=255;
 	int sd, cnt=1;
-	s_packet pckt;
+	s_packet packet;
 	s_sockaddr_in r_addr;
 
 	sd = socket(PF_INET, SOCK_RAW, proto->p_proto);
@@ -71,17 +71,27 @@ void ping(s_sockaddr_in *addr)
 
 		// send message
 		printf("Msg #%d\n", cnt);
-		bzero(&pckt, sizeof(pckt));
-		pckt.hdr.type = ICMP_ECHO;
-		pckt.hdr.un.echo.id = pid;
-		pckt.hdr.un.echo.sequence = cnt++;
-		pckt.hdr.checksum = checksum(&pckt, sizeof(pckt));
-		if ( sendto(sd, &pckt, sizeof(pckt), 0, (s_sockaddr*)addr, sizeof(*addr)) <= 0 )
+		bzero(&packet, sizeof(packet));
+		packet.hdr.type = ICMP_ECHO;
+		packet.hdr.un.echo.id = pid;
+		packet.hdr.un.echo.sequence = cnt++;
+		packet.hdr.checksum = checksum(&packet, sizeof(packet));
+		if ( sendto(sd, &packet, sizeof(packet), 0, (s_sockaddr*)addr, sizeof(*addr)) <= 0 )
 			perror("sendto");
 
 		// receive message
-		if ( recvfrom(sd, &pckt, sizeof(pckt), 0, (s_sockaddr*)&r_addr, (socklen_t *)&len) > 0 )
-			printf("***Got message!***\n");
+		if (recvfrom(sd, &packet, sizeof(packet), 0, (s_sockaddr*)&r_addr, (socklen_t *)&len) > 0 ) {
+			struct icmp *pkt;
+			struct iphdr *iphdr = (struct iphdr *) &packet;
+			pkt = (struct icmp *) (&packet + (iphdr->ihl << 2));
+			if (pkt->icmp_type == ICMP_ECHOREPLY){
+				printf("***Got message!***\n");
+			} else {
+				printf("error msg type %d\n", packet.hdr.type);
+			}
+		}
+		else
+			printf("can't receive response\n");
 		sleep(1);
 	}
 }
