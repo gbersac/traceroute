@@ -22,3 +22,5 @@ The ping command in c
 http://sotodayithought.blogspot.fr/2010/03/simple-ping-implementation-in-c.html
 
 http://www.binarytides.com/icmp-ping-flood-code-sockets-c-linux/
+
+https://www.cs.utah.edu/~swalton/listings/sockets/programs/part4/chap18/myping.c
