@@ -16,3 +16,9 @@ The ping command in c
 - [recvmsg](http://linux.die.net/man/2/recvmsg) : receive a message from a socket
 - [sendto](http://linux.die.net/man/2/sendto) :  send a message on a socket
 - [socket](http://linux.die.net/man/2/socket) : create an endpoint for communication
+
+##References
+
+http://sotodayithought.blogspot.fr/2010/03/simple-ping-implementation-in-c.html
+
+http://www.binarytides.com/icmp-ping-flood-code-sockets-c-linux/
