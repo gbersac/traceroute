@@ -1,165 +1,118 @@
 #include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/time.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <sys/signal.h>
+#include <string.h>
 #include <unistd.h>
 
-#define NB_PACKET 20
+#define DEFDATALEN      56
+#define MAXIPLEN        60
+#define MAXICMPLEN      76
 
-typedef unsigned char u8;
-typedef unsigned short int u16;
+static char *hostname = NULL;
 
-unsigned short in_cksum(unsigned short *ptr, int nbytes);
-void help(const char *p);
-
-int main(int argc, char **argv)
+static int in_cksum(unsigned short *buf, int sz)
 {
-    if (argc < 3)
-    {
-        printf("usage: %s <source IP> <destination IP> [payload size]\n", argv[0]);
-        exit(0);
-    }
+	int nleft = sz;
+	int sum = 0;
+	unsigned short *w = buf;
+	unsigned short ans = 0;
 
-    unsigned long daddr;
-    unsigned long saddr;
-    int payload_size = 0, sent, sent_size;
+	while (nleft > 1) {
+		sum += *w++;
+		nleft -= 2;
+	}
 
-    saddr = inet_addr(argv[1]);
-    daddr = inet_addr(argv[2]);
+	if (nleft == 1) {
+		*(unsigned char *) (&ans) = *(unsigned char *) w;
+		sum += ans;
+	}
 
-    if (argc > 3)
-    {
-        payload_size = atoi(argv[3]);
-    }
-
-    //Raw socket - if you use IPPROTO_ICMP, then kernel will fill in the correct ICMP header checksum, if IPPROTO_RAW, then it wont
-    int sockfd = socket (AF_INET, SOCK_RAW, IPPROTO_RAW);
-
-    if (sockfd < 0)
-    {
-        perror("could not create socket");
-        return (0);
-    }
-
-    int on = 1;
-
-    // We shall provide IP headers
-    if (setsockopt (sockfd, IPPROTO_IP, IP_HDRINCL, (const char*)&on, sizeof (on)) == -1)
-    {
-        perror("setsockopt");
-        return (0);
-    }
-
-    //allow socket to send datagrams to broadcast addresses
-    if (setsockopt (sockfd, SOL_SOCKET, SO_BROADCAST, (const char*)&on, sizeof (on)) == -1)
-    {
-        perror("setsockopt");
-        return (0);
-    }
-
-    //Calculate total packet size
-    int packet_size = sizeof (struct iphdr) + sizeof (struct icmphdr) + payload_size;
-    char *packet = (char *) malloc (packet_size);
-
-    if (!packet)
-    {
-        perror("out of memory");
-        close(sockfd);
-        return (0);
-    }
-
-    //ip header
-    struct iphdr *ip = (struct iphdr *) packet;
-    struct icmphdr *icmp = (struct icmphdr *) (packet + sizeof (struct iphdr));
-
-    //zero out the packet buffer
-    memset (packet, 0, packet_size);
-
-    ip->version = 4;
-    ip->ihl = 5;
-    ip->tos = 0;
-    ip->tot_len = htons (packet_size);
-    ip->id = rand ();
-    ip->frag_off = 0;
-    ip->ttl = 255;
-    ip->protocol = IPPROTO_ICMP;
-    ip->saddr = saddr;
-    ip->daddr = daddr;
-    //ip->check = in_cksum ((u16 *) ip, sizeof (struct iphdr));
-
-    icmp->type = ICMP_ECHO;
-    icmp->code = 0;
-    icmp->un.echo.sequence = rand();
-    icmp->un.echo.id = rand();
-    //checksum
-    icmp->checksum = 0;
-
-    struct sockaddr_in servaddr;
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = daddr;
-    memset(&servaddr.sin_zero, 0, sizeof (servaddr.sin_zero));
-
-    puts("flooding...");
-
-    for (sent = 0 ; sent < NB_PACKET ; ++sent)
-    {
-        memset(packet + sizeof(struct iphdr) + sizeof(struct icmphdr), rand() % 255, payload_size);
-
-        //recalculate the icmp header checksum since we are filling the payload with random characters everytime
-        icmp->checksum = 0;
-        icmp->checksum = in_cksum((unsigned short *)icmp, sizeof(struct icmphdr) + payload_size);
-
-        if ( (sent_size = sendto(sockfd, packet, packet_size, 0, (struct sockaddr*) &servaddr, sizeof (servaddr))) < 1)
-        {
-            perror("send failed\n");
-            break;
-        }
-        ++sent;
-        printf("%d packets sent\r", sent + 1);
-        fflush(stdout);
-
-        int bytes = sendto(sockfd, packet, sizeof(packet), 0, (sockaddr *)&pingaddr, sizeof(sockaddr_in));
-
-        bytes = recvmsg(sockfd, inbuf	, sizeof(inbuf), 0, (sockaddr *)&pingaddr, (socklen_t *)&addrlen);
-
-        usleep(10000);  //microseconds
-    }
-    printf("\n");
-
-    free(packet);
-    close(sockfd);
-
-    return (0);
+	sum = (sum >> 16) + (sum & 0xFFFF);
+	sum += (sum >> 16);
+	ans = ~sum;
+	return (ans);
 }
 
-/*
-    Function calculate checksum
-*/
-unsigned short in_cksum(unsigned short *ptr, int nbytes)
+static void noresp()
 {
-    register long sum;
-    u_short oddbyte;
-    register u_short answer;
+	printf("No response from %s\n", hostname);
+	exit(0);
+}
 
-    sum = 0;
-    while (nbytes > 1) {
-        sum += *ptr++;
-        nbytes -= 2;
-    }
+static void ping(const char *host)
+{
+	struct hostent *h;
+	struct sockaddr_in pingaddr;
+	struct icmp *pkt;
+	int pingsock, c;
+	char packet[DEFDATALEN + MAXIPLEN + MAXICMPLEN];
 
-    if (nbytes == 1) {
-        oddbyte = 0;
-        *((u_char *) & oddbyte) = *(u_char *) ptr;
-        sum += oddbyte;
-    }
+	if ((pingsock = socket(AF_INET, SOCK_RAW, 1)) < 0) {       /* 1 == ICMP */
+		perror("ping: creating a raw socket");
+		exit(1);
+	}
 
-    sum = (sum >> 16) + (sum & 0xffff);
-    sum += (sum >> 16);
-    answer = ~sum;
+	/* drop root privs if running setuid */
+	setuid(getuid());
 
-    return (answer);
+	memset(&pingaddr, 0, sizeof(struct sockaddr_in));
+
+	pingaddr.sin_family = AF_INET;
+	if (!(h = gethostbyname(host))) {
+		fprintf(stderr, "ping: unknown host %s\n", host);
+		exit(1);
+	}
+	memcpy(&pingaddr.sin_addr, h->h_addr, sizeof(pingaddr.sin_addr));
+	hostname = h->h_name;
+
+	pkt = (struct icmp *) packet;
+	memset(pkt, 0, sizeof(packet));
+	pkt->icmp_type = ICMP_ECHO;
+	pkt->icmp_cksum = in_cksum((unsigned short *) pkt, sizeof(packet));
+
+	c = sendto(pingsock, packet, sizeof(packet), 0,
+						 (struct sockaddr *) &pingaddr, sizeof(struct sockaddr_in));
+
+	if (c < 0 || c != sizeof(packet)) {
+		if (c < 0)
+			perror("ping: sendto");
+		fprintf(stderr, "ping: write incomplete\n");
+		exit(1);
+	}
+
+	signal(SIGALRM, noresp);
+	alarm(2);                                     /* give the host 5000ms to respond */
+	/* listen for replies */
+	while (1) {
+		struct sockaddr_in from;
+		size_t fromlen = sizeof(from);
+
+		if ((c = recvfrom(pingsock, packet, sizeof(packet), 0,
+				(struct sockaddr *) &from, (socklen_t *) &fromlen)) < 0) {
+			if (errno == EINTR)
+				continue;
+			perror("ping: recvfrom");
+			continue;
+		}
+		if (c >= 76) {                   /* ip + icmp */
+			struct iphdr *iphdr = (struct iphdr *) packet;
+
+			pkt = (struct icmp *) (packet + (iphdr->ihl << 2));      /* skip ip hdr */
+			if (pkt->icmp_type == ICMP_ECHOREPLY)
+				break;
+		}
+	}
+	printf("%s is alive!\n", hostname);
+	return;
+}
+
+int main ()
+{
+	ping ("74.125.0.0");
 }
