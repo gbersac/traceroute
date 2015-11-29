@@ -126,7 +126,7 @@ void ping(s_addrinfo *addr_info, const char *ip)
 		bzero(&packet, sizeof(packet));
 		packet.hdr.type = ICMP_ECHO;
 		packet.hdr.un.echo.id = pid;
-		packet.hdr.un.echo.sequence = iter++;
+		packet.hdr.un.echo.sequence = iter + 1;
 		packet.hdr.checksum = checksum(&packet, sizeof(packet));
 		if (sendto(sd, &packet, sizeof(packet), 0, addr_info->ai_addr, sizeof(*addr_info->ai_addr)) <= 0)
 			perror("sendto");
@@ -158,14 +158,27 @@ void ping(s_addrinfo *addr_info, const char *ip)
 	}
 }
 
+// i pretend to manage option -h -v
+char *ip_arg(int argc, char *argv[])
+{
+	for (int i = 1; i < argc; ++i) {
+		char *str = argv[i];
+		if (strcmp("-v", str) != 0 && strcmp("-h", str) != 0) {
+			return str;
+		}
+	}
+	printf("error, no argument\n");
+	exit(EXIT_FAILURE);
+}
+
 int main(int argc, char *argv[])
 {
-	if (argc != 2) {
+	if (argc < 2) {
 		printf("usage: %s <addr_info>\n", argv[0]);
 		exit(0);
 	}
 
-	const char *ip = argv[1];
+	const char *ip = ip_arg(argc, argv);
 	s_addrinfo addr_info = get_addr(ip);
 	ping(&addr_info, ip);
 	return 0;
