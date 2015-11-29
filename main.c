@@ -14,9 +14,16 @@
 
 #define PACKETSIZE  64
 
+// time to wait for the call back
+#define WAIT_TO_RECEIVE 2
+
+// number of packet to send to test the destination
+#define NB_PACKET 20
+
 typedef struct sockaddr_in s_sockaddr_in;
 typedef struct sockaddr s_sockaddr;
 typedef struct icmphdr s_icmphdr;
+typedef struct addrinfo s_addrinfo;
 
 // add timeval ?
 typedef struct	packet
@@ -24,9 +31,6 @@ typedef struct	packet
 	s_icmphdr	hdr;
 	char 		msg[PACKETSIZE - sizeof(s_icmphdr)];
 }				s_packet;
-
-int pid = -1;
-struct protoent *proto = NULL;
 
 /*--------------------------------------------------------------------*/
 /*--- checksum - standard 1s complement checksum                   ---*/
@@ -47,17 +51,59 @@ unsigned short checksum(void *b, int len)
 	return result;
 }
 
+s_addrinfo get_addr(const char *ip)
+{
+	s_addrinfo hints;
+	s_addrinfo *result, *rp;
+
+	memset(&hints, 0, sizeof(s_addrinfo));
+	hints.ai_family = AF_UNSPEC;      /* Allow IPv4 or IPv6 */
+	hints.ai_socktype = SOCK_DGRAM;   /* Datagram socket */
+	hints.ai_flags = 0;
+	hints.ai_protocol = 0; /* Any protocol */
+
+	int s = getaddrinfo(ip, NULL, &hints, &result);
+	if (s != 0) {
+		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+		exit(EXIT_FAILURE);
+	}
+
+	/* getaddrinfo() returns a list of address structures.
+	Try each address until we successfully create a socket. */
+	for (rp = result; rp != NULL; rp = rp->ai_next) {
+		int sfd = socket(rp->ai_family, rp->ai_socktype,
+				rp->ai_protocol);
+		if (sfd == -1)
+			continue;
+
+		if (connect(sfd, rp->ai_addr, rp->ai_addrlen) != -1) {
+			close(sfd);
+			break; /* Success */
+		}
+
+		close(sfd);
+	}
+
+	if (rp == NULL) { /* No address succeeded */
+		fprintf(stderr, "Could not connect\n");
+		exit(EXIT_FAILURE);
+	}
+	return (*rp);
+}
+
 /*--------------------------------------------------------------------*/
 /*--- ping - Create message and send it.                           ---*/
 /*--------------------------------------------------------------------*/
-void ping(s_sockaddr_in *addr)
+void ping(s_addrinfo *addr_info)
 {
 	const int val=255;
 	int sd, cnt=1;
 	s_packet packet;
 	s_sockaddr_in r_addr;
+	int pid = getpid();
 
-	sd = socket(PF_INET, SOCK_RAW, proto->p_proto);
+	// create socket
+	sd = socket(PF_INET, SOCK_RAW, IPPROTO_ICMP);
 	if ( sd < 0 ) {
 		perror("socket");
 		return;
@@ -66,6 +112,8 @@ void ping(s_sockaddr_in *addr)
 		perror("Set TTL option");
 	if ( fcntl(sd, F_SETFL, O_NONBLOCK) != 0 )
 		perror("Request nonblocking I/O");
+
+	// loop for one packet
 	while (42) {
 		int len = sizeof(r_addr);
 
@@ -76,10 +124,16 @@ void ping(s_sockaddr_in *addr)
 		packet.hdr.un.echo.id = pid;
 		packet.hdr.un.echo.sequence = cnt++;
 		packet.hdr.checksum = checksum(&packet, sizeof(packet));
-		if ( sendto(sd, &packet, sizeof(packet), 0, (s_sockaddr*)addr, sizeof(*addr)) <= 0 )
+		if ( sendto(sd, &packet, sizeof(packet), 0, addr_info->ai_addr, sizeof(*addr_info->ai_addr)) <= 0 )
 			perror("sendto");
 
-		// receive message
+		//set timeout for recvfrom
+		struct timeval tv;
+		tv.tv_sec = WAIT_TO_RECEIVE;
+		tv.tv_usec = 0;
+		setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv,sizeof(struct timeval));
+
+		// receive message and test if it is a response to the echo message
 		if (recvfrom(sd, &packet, sizeof(packet), 0, (s_sockaddr*)&r_addr, (socklen_t *)&len) > 0 ) {
 			struct icmp *pkt;
 			struct iphdr *iphdr = (struct iphdr *) &packet;
@@ -87,7 +141,7 @@ void ping(s_sockaddr_in *addr)
 			if (pkt->icmp_type == ICMP_ECHOREPLY){
 				printf("***Got message!***\n");
 			} else {
-				printf("error msg type %d\n", packet.hdr.type);
+				printf("Message is not an icmp echo response\n");
 			}
 		}
 		else
@@ -101,22 +155,13 @@ void ping(s_sockaddr_in *addr)
 /*--------------------------------------------------------------------*/
 int main(int argc, char *argv[])
 {
-	struct hostent *hname;
-	s_sockaddr_in addr;
-
-	if ( argc != 2 )
-	{
-		printf("usage: %s <addr>\n", argv[0]);
+	if (argc != 2) {
+		printf("usage: %s <addr_info>\n", argv[0]);
 		exit(0);
 	}
 
-	pid = getpid();
-	proto = getprotobyname("ICMP");
-	hname = gethostbyname(argv[1]);
-	bzero(&addr, sizeof(addr));
-	addr.sin_family = hname->h_addrtype;
-	addr.sin_port = 0;
-	addr.sin_addr.s_addr = *(long*)hname->h_addr;
-	ping(&addr);
+
+	s_addrinfo addr_info = get_addr(argv[1]);
+	ping(&addr_info);
 	return 0;
 }
