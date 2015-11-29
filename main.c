@@ -110,8 +110,6 @@ void ping(s_addrinfo *addr_info)
 	}
 	if ( setsockopt(sd, SOL_IP, IP_TTL, &val, sizeof(val)) != 0)
 		perror("Set TTL option");
-	if ( fcntl(sd, F_SETFL, O_NONBLOCK) != 0 )
-		perror("Request nonblocking I/O");
 
 	// loop for one packet
 	while (42) {
@@ -124,7 +122,7 @@ void ping(s_addrinfo *addr_info)
 		packet.hdr.un.echo.id = pid;
 		packet.hdr.un.echo.sequence = cnt++;
 		packet.hdr.checksum = checksum(&packet, sizeof(packet));
-		if ( sendto(sd, &packet, sizeof(packet), 0, addr_info->ai_addr, sizeof(*addr_info->ai_addr)) <= 0 )
+		if (sendto(sd, &packet, sizeof(packet), 0, addr_info->ai_addr, sizeof(*addr_info->ai_addr)) <= 0)
 			perror("sendto");
 
 		//set timeout for recvfrom
@@ -159,7 +157,6 @@ int main(int argc, char *argv[])
 		printf("usage: %s <addr_info>\n", argv[0]);
 		exit(0);
 	}
-
 
 	s_addrinfo addr_info = get_addr(argv[1]);
 	ping(&addr_info);
