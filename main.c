@@ -2,6 +2,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
 
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -32,9 +33,6 @@ typedef struct	packet
 	char 		msg[PACKETSIZE - sizeof(s_icmphdr)];
 }				s_packet;
 
-/*--------------------------------------------------------------------*/
-/*--- checksum - standard 1s complement checksum                   ---*/
-/*--------------------------------------------------------------------*/
 unsigned short checksum(void *b, int len)
 {
 	unsigned short *buf = b;
@@ -51,6 +49,7 @@ unsigned short checksum(void *b, int len)
 	return result;
 }
 
+// return the address struct corresponding to the ip
 s_addrinfo get_addr(const char *ip)
 {
 	s_addrinfo hints;
@@ -91,13 +90,20 @@ s_addrinfo get_addr(const char *ip)
 	return (*rp);
 }
 
-/*--------------------------------------------------------------------*/
-/*--- ping - Create message and send it.                           ---*/
-/*--------------------------------------------------------------------*/
-void ping(s_addrinfo *addr_info)
+void display(int succeeded, const char *ip, int iter, double timedif)
+{
+	if (succeeded)
+		printf("%d bytes from %s: icmp_seq=%d ttl=254 time=%f ms\n",
+				PACKETSIZE, ip, iter, timedif);
+	else
+		printf("Request timeout for icmp_seq %d\n", iter);
+}
+
+// ping - Create message and send it.
+void ping(s_addrinfo *addr_info, const char *ip)
 {
 	const int val=255;
-	int sd, cnt=1;
+	int sd, iter = 0;
 	s_packet packet;
 	s_sockaddr_in r_addr;
 	int pid = getpid();
@@ -108,22 +114,23 @@ void ping(s_addrinfo *addr_info)
 		perror("socket");
 		return;
 	}
-	if ( setsockopt(sd, SOL_IP, IP_TTL, &val, sizeof(val)) != 0)
+	if (setsockopt(sd, SOL_IP, IP_TTL, &val, sizeof(val)) != 0)
 		perror("Set TTL option");
 
 	// loop for one packet
-	while (42) {
+	for (iter = 0; iter < NB_PACKET; ++iter) {
 		int len = sizeof(r_addr);
+		struct timespec tstart={0,0}, tend={0,0};
 
 		// send message
-		printf("Msg #%d\n", cnt);
 		bzero(&packet, sizeof(packet));
 		packet.hdr.type = ICMP_ECHO;
 		packet.hdr.un.echo.id = pid;
-		packet.hdr.un.echo.sequence = cnt++;
+		packet.hdr.un.echo.sequence = iter++;
 		packet.hdr.checksum = checksum(&packet, sizeof(packet));
 		if (sendto(sd, &packet, sizeof(packet), 0, addr_info->ai_addr, sizeof(*addr_info->ai_addr)) <= 0)
 			perror("sendto");
+		clock_gettime(CLOCK_MONOTONIC, &tstart);
 
 		//set timeout for recvfrom
 		struct timeval tv;
@@ -133,24 +140,24 @@ void ping(s_addrinfo *addr_info)
 
 		// receive message and test if it is a response to the echo message
 		if (recvfrom(sd, &packet, sizeof(packet), 0, (s_sockaddr*)&r_addr, (socklen_t *)&len) > 0 ) {
+			clock_gettime(CLOCK_MONOTONIC, &tend);
+			double diff = ((double)tend.tv_sec + 1.0e-9 * tend.tv_nsec) -
+		           ((double)tstart.tv_sec + 1.0e-9 * tstart.tv_nsec);
 			struct icmp *pkt;
 			struct iphdr *iphdr = (struct iphdr *) &packet;
 			pkt = (struct icmp *) (&packet + (iphdr->ihl << 2));
 			if (pkt->icmp_type == ICMP_ECHOREPLY){
-				printf("***Got message!***\n");
+				display(1, ip, iter, diff);
 			} else {
-				printf("Message is not an icmp echo response\n");
+				display(0, ip, iter, 0.0);
 			}
 		}
 		else
-			printf("can't receive response\n");
+			display(0, ip, iter, 0.0);
 		sleep(1);
 	}
 }
 
-/*--------------------------------------------------------------------*/
-/*--- main - look up host and start ping processes.                ---*/
-/*--------------------------------------------------------------------*/
 int main(int argc, char *argv[])
 {
 	if (argc != 2) {
@@ -158,7 +165,8 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
-	s_addrinfo addr_info = get_addr(argv[1]);
-	ping(&addr_info);
+	const char *ip = argv[1];
+	s_addrinfo addr_info = get_addr(ip);
+	ping(&addr_info, ip);
 	return 0;
 }
