@@ -1,2 +1,2 @@
 all:
-	clang-3.5 -o ft_ping main.c -Wall -Wextra -Werror
+	clang-3.5 -o ft_traceroute main.c -Wall -Wextra -Werror
