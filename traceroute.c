@@ -104,7 +104,7 @@ void traceroute(s_option *opt)
 	int len = sizeof(r_addr);
 
 	// loop for one packet
-	while (42) {
+	while (opt->ttl < DEFMAXTTL) {
 		struct timeval	begin, end;
 		++opt->ttl;
 

@@ -70,11 +70,29 @@ char *ip_arg(int argc, char *argv[])
 	exit(EXIT_FAILURE);
 }
 
-void init_opt(s_option *opt, const char *ip)
+void init_opt(s_option *opt, const char *name)
 {
+	char clienthost[NI_MAXHOST];  //The clienthost will hold the IP address.
+	char clientservice[NI_MAXSERV];
+
 	opt->ttl = 0;
-	opt->addr_info = get_addr(ip);
-	opt->ip = ip;
+	opt->addr_info = get_addr(name);
+	opt->name = name;
+	int err = getnameinfo(opt->addr_info->ai_addr, sizeof(*opt->addr_info->ai_addr),
+		clienthost, sizeof(clienthost),
+		clientservice, sizeof(clientservice),
+		NI_NUMERICHOST|NI_NUMERICSERV);
+	printf("init_opt clienthost %s name %s\n", clienthost, name);
+	opt->ip = strdup(clienthost);
+	if(err != 0)
+		opt->ip = strdup(name);
+	printf("opt->ip %s\n", opt->ip);
+}
+
+static void begin_string(s_option *opt)
+{
+	printf("traceroute to %s (%s), %d hops max, 52 byte packets\n",
+			opt->name, opt->ip, MAXTTL);
 }
 
 int main(int argc, char *argv[])
@@ -87,6 +105,7 @@ int main(int argc, char *argv[])
 	}
 	const char *ip = ip_arg(argc, argv);
 	init_opt(&opt, ip);
+	begin_string(&opt);
 	traceroute(&opt);
 	return 0;
 }

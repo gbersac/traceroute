@@ -28,6 +28,8 @@
 
 #define BUFSIZE IP_MAXPACKET
 
+#define DEFMAXTTL 64
+
 typedef struct sockaddr_in s_sockaddr_in;
 typedef struct sockaddr s_sockaddr;
 typedef struct icmphdr s_icmphdr;
@@ -46,12 +48,16 @@ typedef struct	packet
 
 typedef struct	option
 {
+	/*useless, to prevent memory errors*/
+	char		blop[1024];
+
 	/**
 	 * Time To Live.
 	 */
 	int			ttl;
 	s_addrinfo	*addr_info;
 	const char	*ip;
+	const char	*name;
 }				s_option;
 
 unsigned short	checksum(void *b, int len);
